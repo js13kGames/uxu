@@ -1,6 +1,6 @@
 UXU
 ===
-*Play again yourself !*
+*Play against yourself !*
 
 ### Game
 This is kind of a Tower defense game, but this time to complete a level you will need to beat yourself ! 
