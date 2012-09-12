@@ -7,8 +7,7 @@ This is kind of a Tower defense game, but this time to complete a level you will
 * Defend
 * Defeat your own defenses
 
-### Credits 
-http://www.spriters-resource.com/ds/puchievaevangliongame/sheet/49181
+### Sprite credits 
 http://www.lostgarden.com/2007/05/dancs-miraculously-flexible-game.html
 
 ### About
