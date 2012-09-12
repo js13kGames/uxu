@@ -17,12 +17,24 @@ c.height = height * margin;
 camX = 0;
 camY = 0;
 mountainImage = new Image();
-mountainImage.src = "montagne_1.png";
+mountainImage.src = "mount.png";
 cloudImage = new Image();
-cloudImage.src = "nuage_1.png";
+cloudImage.src = "cloud.png";
 mouseX = 0;
 mouseY = 0;
-gameStarted = false;
+keysDown = new Array();
+arrow = {left: 37, up: 38, right: 39, down: 40, space: 32 };
+phaseState = {startScreen: 0, setup: 1, run: 2, succeed:4, fail:5 };
+currentPhaseState = phaseState.startScreen;
+startingLevel = 1;
+currentLevel = 1;
+levelDuration = 13000;
+currentTimeLeft = levelDuration;
+lifeLeft = 13;
+heightMax = 0;
+helpTime = 0;
+bonusJumpCount = 1;
+
 
 var filterStrength = 20;
 var frameTime = 0, lastLoop = new Date, thisLoop;
@@ -35,12 +47,7 @@ lingrad.addColorStop(1, '#FEDCD3');
 
 var mouseOut = document.getElementById('mouse');
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
 // Misc
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
 function NormVec2D(arg) {
     var vec = {x:arg.x, y:arg.y};
     var l = Math.sqrt(vec.x * vec.x + vec.y * vec.y);
@@ -89,12 +96,10 @@ var CustomRandom = function(nseed) {
     }
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
-// Background
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
+var gRNG = CustomRandom(12375);
 
+
+// Background
 var renderDisc = function(x, y, radius) {
     ctx.fillStyle = "#FFFFFF";
     ctx.beginPath();
@@ -160,7 +165,7 @@ var renderBackGround = function(x, y) {
 
     }
 
-    ctx.fillStyle = "#FF0000";
+    ctx.fillStyle = "#A4E2B2";
     ctx.beginPath();
     ctx.rect(0, height - y, width,  800);
     ctx.closePath();
@@ -190,22 +195,11 @@ var clear = function(x, y) {
 }
 
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
 // Player
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-/*
-var updatePos = function(dt) {
-    var p = {x: gTime / 10 + width / 2, y:height / 2};
-    return p;
-}
-*/
-
 function Player() {
     var that = this;
     that.image = new Image();
-    that.image.src = "charac.png"
+    that.image.src = "charac2.png"
     that.width = 45;
     that.height = 45;
     that.X = 0;
@@ -214,6 +208,9 @@ function Player() {
     that.time = 0;
     that.speed = {x:0, y:0};
     that.gravity = 7;
+    that.controlSpeedX = 2;
+    that.alive = false;
+    that.bonusJumpUsed = false;
     
     that.setPosition = function(x, y) {
         that.X = x;
@@ -222,19 +219,54 @@ function Player() {
         that.speed.y = -5;
     }
     
+    that.spawn = function(x, y) {
+        //console.log("Player:spawn("+x+","+y+");")
+        that.X = x;
+        that.Y = y;
+        that.speed.x = 0;
+        that.speed.y = -7 ;
+        that.alive = true;
+        that.time = 0;
+        that.bonusJumpUsed = false;
+    }
+
     that.update = function(dt) {
-        if(gameStarted==false)
+        if(currentPhaseState != phaseState.run)
             return;
+        if(!that.alive)
+            return ;
+
         that.time += dt;
         var fDt = dt / 1000.0;
         var fTime = that.time / 1000.0;
 
+        {
+            if(keysDown[arrow.left])
+                that.speed.x = -that.controlSpeedX;
+            if(keysDown[arrow.right])
+                that.speed.x = that.controlSpeedX ;
+            if(bonusJumpCount>0)
+            {
+                if(keysDown[arrow.space] && that.bonusJumpUsed==false)
+                {
+                    that.bonusJumpUsed = true;
+                    that.speed.y = -10 ;
+                    bonusJumpCount--;
+                    gSpawnExplosion(that.X,that.Y);           
+                }
+                if(keysDown[arrow.space]==false)
+                {
+                    that.bonusJumpUsed = false;
+                }
+            }
+        }
+
         that.speed.y += that.gravity * fDt;
 
-       if(that.Y>300)
+       if(that.Y>height/2) //touch the ground
        {
-            that.speed.y = -that.speed.y;
-            gameStarted = false;
+            that.speed.y = -7;
+            playerTouchGround();
         }
         
        if(that.Y<-height/2)
@@ -247,28 +279,21 @@ function Player() {
             that.speed.x = -that.speed.x;
        if(that.X<-width/2)
             that.speed.x = -that.speed.x;
-/*
-        var maxSpeedX = 4.0;
-        if(Math.abs(that.speed.x)>maxSpeedX)
-            that.speed.x = maxSpeedX * that.speed.x / Math.abs(that.speed.x);
-        var maxSpeedY = 5.0;
-        if(Math.abs(that.speed.y)>maxSpeedY)
-            that.speed.y = maxSpeedY * that.speed.y / Math.abs(that.speed.y);
-*/
+
         that.X += that.speed.x;
         that.Y += that.speed.y;
 
-        mouseOut.innerHTML  = "player (" + that.X + ",  = " + that.Y + ")";
-
-        //that.Y = 100;
     }
     
     that.draw = function() {
-        if(gameStarted==false)
+        if(currentPhaseState != phaseState.run)
             return;
+        if(!that.alive)
+            return ;
+
         try {
-            var x = Math.round(that.X - camX);
-            var y = Math.round(that.Y - camY);
+            var x = Math.round(that.X - camX - that.width / 2 );
+            var y = Math.round(that.Y - camY - that.height / 2);
             ctx.drawImage(that.image, x, y, that.width, that.height);
         } 
         catch (e) {
@@ -278,16 +303,12 @@ function Player() {
     }
 }
 
-var player = new Player();
-player.setPosition(0, 100);
+var players =  new Array();
+for (var i = 0; i<30; i++) {
+    players[i] = new Player();
+}
 
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
 // Rocket
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
 function Rocket() {
     var that = this;
     that.image = new Image();
@@ -303,30 +324,61 @@ function Rocket() {
     that.gravity = 9;
     that.angle = 1;
     that.alive = false;
+    that.duration = 3000;
     
     that.spawn = function(x, y) {
-        console.log("rocket:setPosition("+x+","+y+");")
+        //console.log("rocket:setPosition("+x+","+y+");")
         that.X = x;
         that.Y = y;
         that.alive = true;
+        that.time = 0;
     }
     
+    that.findNearestPlayer = function() {
+        var res = 0;
+        var minDist = Number.MAX_VALUE;
+
+        for (var i = 0; i < players.length; i++) {
+            if(players[i].alive==true)
+            {
+                var player = players[i];
+                var dirPlayer = {x:player.X - that.X, y:player.Y - that.Y};
+                var dist = NormVec2D(dirPlayer);
+                if (dist<minDist)
+                {
+                    res = player;
+                    minDist = dist;
+                }
+            }
+        }
+        return res;
+    }
+
     that.update = function(dt) {
         if(!that.alive)
             return ;
-        if(gameStarted==false)
+        if(currentPhaseState != phaseState.run)
             return;
 
         that.time += dt;
+
+        var player = that.findNearestPlayer();
+
+        if(that.Y+height/2<player.Y)
+        {
+            that.alive = false;
+            gSpawnExplosion(that.X,that.Y);     
+            rocketTouchTop();
+        }
+
+
         var fDt = dt / 1000.0;
         var fTime = that.time / 1000.0;
 
         that.angle += fDt;
 
-        //console.log("player position = ("+player.X+","+player.Y+");")
-        //console.log("rocket position = ("+that.X+","+that.Y+");")
 
-        var speedCoef = 2.0;
+        var speedCoef = 1.0;
         var dirPlayer = {x:player.X - that.X, y:player.Y - that.Y};
         var dirNormed = NormalizeVec2D(dirPlayer);
         var dir = MulVec2D(dirNormed, speedCoef);
@@ -335,45 +387,45 @@ function Rocket() {
         that.speed.x = that.speed.x * (1.0 - controlCoef) + dir.x * controlCoef;
         that.speed.y = that.speed.y * (1.0 - controlCoef) + dir.y * controlCoef;
         that.speed = MulVec2D(NormalizeVec2D(that.speed),speedCoef);
+        that.speed.y = - (2 + currentLevel / 6);
 
-        //mouseOut.innerHTML  = "x=" + that.speed.x + ", y=" + that.speed.y;
         that.X += that.speed.x;
         that.Y += that.speed.y;
 
-        var distPlayer = NormVec2D(dirPlayer);
-        if(distPlayer<50)
+        for (var i = 0; i < players.length; i++) 
         {
-            var explosionCoef = 10.0;
-            /*
-            var exploDir = MulVec2D(dirNormed,explosionCoef);
-            if(exploDir.y>0)
-                exploDir.y=0;
-            player.speed.x = exploDir.x;
-            player.speed.y = exploDir.y;
-            */
-            if(dirPlayer.x<0)
-                player.speed.x = -2;
-            else
-                player.speed.x = 2;
+            if(players[i].alive==true)
+            {
+                var player = players[i];
+                var dirPlayer = {x:player.X - that.X, y:player.Y - that.Y};
+                var distPlayer = NormVec2D(dirPlayer);
 
-            player.speed.y = -3;
-            that.alive = false;
+                if(distPlayer<50)
+                {
+                    var explosionCoef = 10.0;
+                    if(dirPlayer.x<0)
+                        player.speed.x = -2;
+                    else
+                        player.speed.x = 2;
+
+                    player.speed.y = -(5 + currentLevel / 6);;
+                    that.alive = false;
+                    gSpawnExplosion(that.X,that.Y);
+                }
+            }
         }
+
     }
     
     that.draw = function() {
         if(!that.alive)
             return;
+        if(currentPhaseState != phaseState.run)
+            return;
+
         try {
-            var x = Math.round(that.X - camX);
-            var y = Math.round(that.Y - camY);
-            /*
-            ctx.translate(x, y);
-            ctx.rotate(that.angle);
-            ctx.drawImage(that.image,  -that.width / 2 , -that.height / 2, that.width, that.height);
-            ctx.rotate(-that.angle);
-            ctx.translate(-x, -y);
-            */
+            var x = Math.round(that.X - camX - that.width / 2);
+            var y = Math.round(that.Y - camY - that.height / 2);
             ctx.drawImage(that.image,  x , y, that.width, that.height);
         } 
         catch (e) {
@@ -384,20 +436,12 @@ function Rocket() {
 }
 
 
-var rocket =  new Rocket();
 var rockets =  new Array();
-for (var i = 0; i<10; i++) {
+for (var i = 0; i<30; i++) {
     rockets[i] = new Rocket();
 }
  
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
 // Turret
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
 function Turret(offset) {
     var that = this;
     that.image = new Image();
@@ -415,37 +459,54 @@ function Turret(offset) {
     that.angle = 1;
     that.alive = false;
     that.period = 1000;
-    that.offset = offset;
+    that.offsetMax = 2000;
+    that.offset = (gRNG.next() * that.offsetMax) % that.offsetMax;
+    that.rocket = 0;
 
     that.restart = function() {
         that.time = 0;
-        that.spawnTimeLeft = offset * 100;
+        that.spawnTimeLeft = that.offset;
+        that.rocket = 0;
     }
     
+    that.restart = function() {
+        that.time = 0;
+        that.spawnTimeLeft = that.offset;
+        that.rocket = 0;
+    }
+
     that.spawn = function(x, y) {
-        console.log("Turret:setPosition("+x+","+y+");")
+        //console.log("Turret:setPosition("+x+","+y+");")
         that.X = x;
         that.Y = y;
         that.alive = true;
     }
     that.spawnRocket  = function() {
         if(!that.alive)
-            return ;
-        gSpawnRocket(that.X, that.Y);
+            return false;
+        if(that.rocket==0 || that.rocket.alive==false)
+        {
+            that.rocket = gSpawnRocket(that.X, that.Y);
+            return true;
+        }
+        return false;
     }
     
     that.update = function(dt) {
         if(!that.alive)
             return ;
-        if(gameStarted==false)
+        if(currentPhaseState != phaseState.run)
             return;
 
         that.time += dt;
         that.spawnTimeLeft -= dt;
         if(that.spawnTimeLeft<0)
         {
-            that.spawnTimeLeft +=  that.period;
-            that.spawnRocket();
+            if(that.spawnRocket())
+                that.spawnTimeLeft +=  that.period;
+            else
+                that.spawnTimeLeft +=  100; //retry soon
+            
         }
 
         var fDt = dt / 1000.0;
@@ -456,15 +517,8 @@ function Turret(offset) {
         if(!that.alive)
             return;
         try {
-            var x = Math.round(that.X - camX);
-            var y = Math.round(that.Y - camY);
-            /*
-            ctx.translate(x, y);
-            ctx.rotate(that.angle);
-            ctx.drawImage(that.image,  -that.width / 2 , -that.height / 2, that.width, that.height);
-            ctx.rotate(-that.angle);
-            ctx.translate(-x, -y);
-            */
+            var x = Math.round(that.X - camX - that.width / 2);
+            var y = Math.round(that.Y - camY - that.height / 2);
             ctx.drawImage(that.image,  x , y, that.width, that.height);
         } 
         catch (e) {
@@ -476,19 +530,251 @@ function Turret(offset) {
 }
 
 var turrets =  new Array();
-for (var i = 0; i<10; i++) {
+for (var i = 0; i<30; i++) {
     turrets[i] = new Turret(i);
 }
  
+// Explosion
+function Explosion() {
+    var that = this;
+    
+    that.images =  new Array();
+    for (var i = 0; i < 5; i++) {
+        that.images[i] = new Image();
+        that.images[i].src = "explo" + i +".png"
+    };
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
+    that.width = 64;
+    that.height = 64;
+    that.X = 0;
+    that.Y = 0;
+    that.time = 0;
+    that.alive = false;
+    that.frame = 0;
+    that.fps = 15;
+
+    that.reset = function() {
+        that.time = 0;
+        that.alive = false;
+    }
+    
+    that.spawn = function(x, y) {
+        that.X = x;
+        that.Y = y;
+        that.alive = true;
+    }
+    
+    that.update = function(dt) {
+        
+        if(!that.alive)
+            return ;
+        if(currentPhaseState != phaseState.run)
+            return;
+
+        that.time += dt;
+        var fDt = dt / 1000.0;
+        var fTime = that.time / 1000.0;
+        that.frame = Math.round(fTime * that.fps);
+        if(that.frame >= that.images.length )
+        {
+            that.reset();
+        }
+    }
+    
+    that.draw = function() {
+        if(!that.alive)
+            return;
+        if(currentPhaseState != phaseState.run)
+            return;
+
+        try {
+            var image = that.images[that.frame];
+            var x = Math.round(that.X - camX - that.width / 2);
+            var y = Math.round(that.Y - camY - that.height / 2);
+            ctx.drawImage(image,  x , y, that.width, that.height);
+        } 
+        catch (e) {
+        }
+        ;
+   
+    }
+
+}
+
+var explosions =  new Array();
+for (var i = 0; i<30; i++) {
+    explosions[i] = new Explosion();
+}
+
+// GamePlay
+function playerTouchGround() {
+    currentTimeLeft = levelDuration; //reset timer
+}
+
+function rocketTouchTop() {
+    lifeLeft --;
+    if(lifeLeft<=0)
+    {
+        lifeLeft = 0;
+        currentPhaseState = phaseState.fail;
+    }
+}
+
+function clearTurrets() {
+    for (var i = 0; i < turrets.length; i++) {
+        turrets[i].alive = false;
+    };
+}
+
+function clearRockets() {
+    for (var i = 0; i < rockets.length; i++) {
+        rockets[i].alive = false;
+    };
+}
+
+function newPhase() {
+    for (var i = 0; i < players.length; i++) {
+        players[i].alive = false;
+    };
+    clearRockets();
+    for (var i = 0; i < turrets.length; i++) {
+        turrets[i].restart();
+    };  
+
+
+    var spawnOffset = 0.8 * width / (currentLevel + 1);
+    for (var i = 0; i < currentLevel; i++) {
+        var x = (i + 0.5 - currentLevel / 2) * spawnOffset ;
+        gSpawnTurret(x ,height / 2);
+    }
+    gSpawnPlayer(0,100);
+
+     currentTimeLeft = levelDuration;
+}
+
+function nextButton() {
+    clearTurrets();
+    clearRockets();
+}
+
+function newGame() {
+    currentPhaseState = phaseState.startScreen;
+    currentLevel = startingLevel;
+    bonusJumpCount = 1;
+}
+
+function nextLevel() {
+    bonusJumpCount++;
+    currentLevel++;
+    newPhase();
+    clearTurrets();
+
+}
+
+
+function GetTurretCount() {
+    var res = 0;
+    for (var i = 0; i < turrets.length; i++) {
+        if(turrets[i].alive==true)
+        {
+            res++
+        }
+    };
+    return res;
+}
+
+function gSpawnPlayer(x,y) {
+    for (var i = 0; i < players.length; i++) {
+        if(players[i].alive==false)
+        {
+            players[i].spawn(x , y );
+            return players[i];
+        }
+    };
+    return 0; 
+}
+
+function gSpawnRocket(x,y) {
+    for (var i = 0; i < rockets.length; i++) {
+        if(rockets[i].alive==false)
+        {
+            rockets[i].spawn(x , y );
+            return rockets[i];
+        }
+    };
+    return 0; 
+}
+
+function gSpawnTurret(x,y) {
+    for (var i = 0; i < turrets.length; i++) {
+        if(turrets[i].alive==false)
+        {
+            turrets[i].spawn(x , y );
+            return;
+        }
+    };
+}
+
+function gSpawnExplosion(x,y) {
+    for (var i = 0; i < explosions.length; i++) {
+        if(explosions[i].alive==false)
+        {
+            explosions[i].spawn(x , y );
+            return;
+        }
+    };
+}
+
 // Event
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
+function onClickUpEvent() {
+    if(currentPhaseState==phaseState.run)
+        return;
+
+    switch(currentPhaseState)
+    {
+    case phaseState.startScreen:
+        bonusJumpCount = 1;
+        currentLevel = startingLevel;
+        lifeLeft = 13;
+        clearTurrets();
+        newPhase();
+        currentPhaseState = phaseState.run;
+        helpTime = 2000;
+      break;
+    case phaseState.setup:
+      break;
+    case phaseState.run:
+      break;
+    case phaseState.fail:
+        currentPhaseState = phaseState.startScreen;
+      break;
+    case phaseState.succeed:
+        nextLevel();
+        newPhase();
+        currentPhaseState = phaseState.run;
+      break;
+    default:
+    }
+
+
+}
+
+
 addEventListener('keydown', function (e) {
-//keysDown[e.keyCode] = true;
-    //player.speed.y = -10;
+    var keyCode = e.keyCode;
+    keysDown[keyCode] = true;
+    if(keyCode==arrow.left || keyCode==arrow.right)
+        helpTime = 0;
+}, false);
+
+addEventListener('keyup', function (e) {
+    var keyCode = e.keyCode;
+    keysDown[keyCode] = false;
+
+    if(keyCode==32)
+        onClickUpEvent();
+
+
 }, false);
 
 
@@ -511,56 +797,188 @@ function ev_mousemove(e) {
     var y = e.pageY - pos.y;
     mouseX = x;
     mouseY = y;
-    /*
-    var coordinateDisplay = "x=" + x + ", y=" + y;
-    console.log(coordinateDisplay);
-    */
 }
 
 c.addEventListener('mousemove', ev_mousemove, false);
 
-function gSpawnRocket(x,y) {
-    for (var i = 0; i < rockets.length; i++) {
-        if(rockets[i].alive==false)
-        {
-            rockets[i].spawn(x , y );
-            return;
-        }
-    };
+
+
+function mouseClickDown(event) {
 }
 
-function gSpawnTurret(x,y) {
-    for (var i = 0; i < turrets.length; i++) {
-        if(turrets[i].alive==false)
-        {
-            turrets[i].spawn(x , y );
-            return;
-        }
-    };
+c.addEventListener("mousedown", mouseClickDown, false);
+
+function mouseClickUp(event) {
+    onClickUpEvent();
 }
 
-function startGame() {
-    for (var i = 0; i < rockets.length; i++) {
-        rockets[i].alive = false;
-    };
-    for (var i = 0; i < turrets.length; i++) {
-        turrets[i].restart();
-    };
+c.addEventListener("mouseup", mouseClickUp, false);
+
+// UI
+var helpType = {title: 0, attack: 2, succeed: 4, fail: 5};
+
+var keyImage = new Image();
+keyImage.src = "key.png";
+var keySizeX = 32;
+var keySizeY = 32;
+
+function renderTextShadowed(textVal, textPosX, textPosY, textColor) {
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillText( textVal, textPosX + 3, textPosY + 3);
+    ctx.fillStyle = textColor;
+    ctx.fillText( textVal, textPosX, textPosY);
+}
+
+function renderTime(time) {
+   // var player = players[0];
+
+    var space = 10;
+    var textY = space;
+    ctx.font = "bold 80px Helvetica";
+    ctx.textAlign = 'left';
+    ctx.textBaseline = "top";
+    var val = (time/1000).toFixed(2)
+
+    renderTextShadowed(val + "'", space, textY,  "#FFFFFF");
+    textY += 80;
+
+
+    textY = space;
+    ctx.font = "bold 30px Helvetica";
+    ctx.textAlign = 'right';
+    ctx.textBaseline = "top";
+    var textVal = lifeLeft + " life";
+    if(lifeLeft>1)
+        textVal = lifeLeft + " lifes";
+    renderTextShadowed(textVal, width - space, textY,  "#FFFFFF");
+    textY += 30;
+    var textVal = bonusJumpCount + " jump";
+    if(bonusJumpCount>1)
+        textVal = bonusJumpCount + " jumps";
+    renderTextShadowed(textVal, width - space,  textY,  "#FFFFFF");
+    textY += 30;
+    renderTextShadowed(heightMax.toFixed(0) + " m", width - space,  textY,  "#FFFFFF");
+
+}
+
+function renderHelp(HelpType) {
     
+    ctx.textBaseline = "top";
 
-    player.setPosition(0, 200);
-    gameStarted = true;
-    //gSpawnTurret(camX , height / 2);
-}
+    switch(HelpType)
+    {
+        case helpType.title:
+            var h = 400;
+            var space = 10;
+            var margin = 10;
+            var y = height /2 + space - h / 2;
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect( space, y , width - space * 2, h);
+            y += margin;
+
+            //y+= 50;
+            ctx.textAlign = "center";
+            ctx.font = "bold 60px Helvetica";
+            ctx.fillStyle =  "#FFFFFF";
+            renderTextShadowed("UXU", width/2, y, "#FFFFFF");
+            y += 60;
+            ctx.font = "italic 30px Helvetica";
+            ctx.fillText("protect cuteness !", width/2, y);
+            ctx.font = "bold 30px Helvetica";
+            y += 80;
+            x = margin + space;
+            ctx.textAlign = "left";
+            ctx.fillText(". Jump on rockets", x, y);
+            y += 40;
+            ctx.fillText(". Do not let any rocket reach the sky", x, y);
+            y += 80;
+            ctx.textAlign = "center";
+            ctx.fillText("Press Space to continue...", width/2, y);
+        break;
+        case helpType.attack:
+            if(helpTime<=0)
+                return;
+            var h = 120;
+            var space = 10;
+            var margin = 10;
+            var y = height - h - space;
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect( space, y , width - space * 2, h);
+            y += margin;
+
+            var x = space + margin;//width / 2 - 20; 
+            ctx.textAlign = "left";
+            ctx.font = "bold 30px Helvetica";
+            ctx.fillStyle =  "#FFFFFF";
+            ctx.fillText(" to move", x + 150, y);
+            y+= 5;
+            ctx.textAlign = "center";
+            ctx.drawImage(keyImage, x, y, keySizeX , keySizeY);
+            ctx.font = "bold 30px Helvetica";
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillText("<", x + 15, y - 1);
+            x += 40; 
+            ctx.drawImage(keyImage, x, y, keySizeX , keySizeY);
+            ctx.font = "bold 30px Helvetica";
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillText(">", x + 19, y - 1);
+
+            ctx.textAlign = "left";
+            y+= 50;
+            ctx.fillStyle =  "#FFFFFF";
+             x = space + margin;//width / 2 - 20; 
+            ctx.fillText("[Space]", x, y);
+            ctx.fillText(" to use bonus jump", x + 150, y);
+        break;
+        case helpType.succeed:
+            var h = 300;
+            var space = 10;
+            var margin = 10;
+            var y = height /2 + space - h / 2;
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect( space, y , width - space * 2, h);
+            y += margin;
+
+            y+= 10;
+            ctx.textAlign = "center";
+            ctx.font = "bold 60px Helvetica";
+            ctx.fillStyle =  "#FFFFFF";
+            ctx.fillText("Great !", width/2, y);
+            y += 80;
+            ctx.font = "bold 30px Helvetica";
+            ctx.fillText("Next level : " + (currentLevel + 1), width/2, y);
+            y += 120;
+            ctx.fillText("press space to continue...", width/2, y);
+        break;
+        case helpType.fail:
+            var h = 350;
+            var space = 10;
+            var margin = 10;
+            var y = height /2 + space - h / 2;
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect( space, y , width - space * 2, h);
+            y += margin;
+
+            y+= 10;
+            ctx.textAlign = "center";
+            ctx.font = "bold 60px Helvetica";
+            ctx.fillStyle =  "#FFFFFF";
+            ctx.fillText("Oooops !", width/2, y);
+            y += 100;
+            ctx.font = "bold 30px Helvetica";
+            ctx.fillText("Level : " + (currentLevel + 1), width/2, y);
+            y += 30;
+            ctx.fillText("Highest Jump : " + heightMax.toFixed(0), width/2, y);
+            y += 120;
+            ctx.fillText("press space to continue...", width/2, y);
+        break;
+
+    }
 
 
-function mouseClick(event) {
-    mouseOut.innerHTML  = "x=" + mouseX + ", y=" + mouseY;
-    //gSpawnRocket(mouseX + camX , height / 2);
-    gSpawnTurret(mouseX + camX , height / 2);
-}
+};
 
-c.addEventListener("mousedown", mouseClick, false);
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -572,6 +990,7 @@ var oldCamX = 0;
 var oldCamY = 0;
 
 
+
 var GameLoop = function() {
     
     var thisFrameTime = (thisLoop = new Date) - lastLoop;
@@ -580,42 +999,68 @@ var GameLoop = function() {
     
     var dt = 1000 / 100;
     gTime += dt;
+    //helpTime -= dt;
 
-    //player.setPosition(pos.x, pos.y);
-    player.update(dt);
-    rocket.update(dt);
+
+
+    for (var i = 0; i < players.length; i++) {
+        players[i].update(dt);
+    };
     for (var i = 0; i < rockets.length; i++) {
         rockets[i].update(dt);
     };
     for (var i = 0; i < turrets.length; i++) {
         turrets[i].update(dt);
     };
+    for (var i = 0; i < turrets.length; i++) {
+        explosions[i].update(dt);
+    };
 
-    //clear(player.X, player.Y);
-    /*
-    oldCamX = (oldCamX + player.X) / 2;
-    clear( oldCamX, 100);
-    */
+
     //clear(0, 100);
-    clear(0, player.Y);
+    var player = players[0];
+    clear(0, player.Y+150);
+    var playerHeight = height /2 - player.Y ;
+    if(playerHeight > heightMax)
+        heightMax = playerHeight;
 
 
-    player.draw();
-    rocket.draw();
+    for (var i = 0; i < players.length; i++) {
+        players[i].draw();
+    };
     for (var i = 0; i < rockets.length; i++) {
         rockets[i].draw();
     };
     for (var i = 0; i < turrets.length; i++) {
         turrets[i].draw();
     };
+    for (var i = 0; i < turrets.length; i++) {
+        explosions[i].draw();
+    };
+
+    if(currentPhaseState==phaseState.run)
+    {
+        currentTimeLeft -= dt;
+        if(currentTimeLeft<0)
+        {
+            currentPhaseState = phaseState.succeed;
+            currentTimeLeft = levelDuration; 
+        }
+        renderTime(currentTimeLeft);
+    }
+
+    if(currentPhaseState==phaseState.startScreen)
+        renderHelp(helpType.title);
+    if(currentPhaseState==phaseState.succeed)
+        renderHelp(helpType.succeed);
+    if(currentPhaseState==phaseState.fail)
+        renderHelp(helpType.fail);
+    if(currentPhaseState==phaseState.run)
+        renderHelp(helpType.attack);
 
     gLoop = setTimeout(GameLoop, dt/4);
 }
 
 GameLoop();
 
-var fpsOut = document.getElementById('fps');
-setInterval(function() {
-    fpsOut.innerHTML = (1000 / frameTime).toFixed(1) + " fps";
-}, 1000);
 
