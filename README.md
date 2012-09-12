@@ -1,11 +1,10 @@
 UXU
 ===
-*Play against yourself !*
+*protect cuteness !*
 
 ### Game
-This is kind of a Tower defense game, but this time to complete a level you will need to beat yourself ! 
-* Defend
-* Defeat your own defenses
+Protect the colorfull sky from the evil rocket !
+Jump on rocket to reach another rocket
 
 ### Sprite credits 
 http://www.lostgarden.com/2007/05/dancs-miraculously-flexible-game.html
