@@ -6,6 +6,8 @@ UXU
 Protect the colorfull sky from the evil rocket !
 Jump on rocket to reach another rocket
 
+Works of Firefox, but run smoother on Chrome
+
 ### Sprite credits 
 http://www.lostgarden.com/2007/05/dancs-miraculously-flexible-game.html
 
