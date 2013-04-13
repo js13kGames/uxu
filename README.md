@@ -16,6 +16,7 @@ This is my entry to the http://js13kgames.com/ contest, my very first game in ja
 Coming from the C++ world, I thought it would be a nice way to learn javascript.
 And I learn a lot ! :)
 
+try : http://skeetmtp.github.io/uxu/
 
 Alban Lecocq
 @skeetmtp
